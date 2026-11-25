@@ -1,0 +1,6 @@
+{
+  "name": "My School",
+  "description": "Aplikasi manajemen sekolah komprehensif bergaya Sneat Admin Dashboard dengan Multi-Tenant, Profil Sekolah, Guru, Siswa, Kelas, Mapel, Absensi, Nilai, RPP, dan Jurnal Mengajar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

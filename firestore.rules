@@ -1,0 +1,956 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 1. GLOBAL DENY DEFAULT
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 2. CORE HELPER FUNCTIONS
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasVerifiedEmail() {
+      return isSignedIn() &&
+        request.auth.token.email != null &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9._-]+$');
+    }
+
+    function isNonEmptyStr(val, maxLen) {
+      return val is string && val.size() > 0 && val.size() <= maxLen;
+    }
+
+    function isBoundedStr(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    function isValidCreateTimestamps(d) {
+      return d.createdAt is timestamp && d.createdAt <= request.time &&
+             d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    function isValidUpdateTimestamp(d, old) {
+      return d.createdAt == old.createdAt &&
+             d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    // Tenant & Role Helpers
+    function schoolExists(schoolId) {
+      return exists(/databases/$(database)/documents/schools/$(schoolId));
+    }
+
+    function isSchoolOwner(schoolId) {
+      return isSignedIn() &&
+        schoolExists(schoolId) &&
+        get(/databases/$(database)/documents/schools/$(schoolId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isSchoolOwnerAfter(schoolId) {
+      return isSignedIn() &&
+        existsAfter(/databases/$(database)/documents/schools/$(schoolId)) &&
+        getAfter(/databases/$(database)/documents/schools/$(schoolId)).data.ownerUid == request.auth.uid;
+    }
+
+    function memberExists(schoolId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid));
+    }
+
+    function memberRole(schoolId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isSchoolAdmin(schoolId) {
+      return isSchoolOwner(schoolId) ||
+        (memberExists(schoolId) && memberRole(schoolId) == 'SUPERADMIN');
+    }
+
+    function isSchoolKepsek(schoolId) {
+      return memberExists(schoolId) && memberRole(schoolId) == 'KEPALA_SEKOLAH';
+    }
+
+    function isSchoolGuru(schoolId) {
+      return memberExists(schoolId) && memberRole(schoolId) == 'GURU';
+    }
+
+    function isSchoolStaff(schoolId) {
+      return isSchoolOwner(schoolId) ||
+        (memberExists(schoolId) && memberRole(schoolId) in ['SUPERADMIN', 'KEPALA_SEKOLAH', 'GURU']);
+    }
+
+    function isSchoolMember(schoolId) {
+      return isSchoolOwner(schoolId) || memberExists(schoolId);
+    }
+
+    function isForumEligible(schoolId) {
+      return isSchoolAdmin(schoolId) || isSchoolGuru(schoolId);
+    }
+
+    function whitelistMatches(schoolId, d) {
+      return isValidId(d.whitelistId) &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/staff_whitelist/$(d.whitelistId)) &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/staff_whitelist/$(d.whitelistId)).data.email == request.auth.token.email &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/staff_whitelist/$(d.whitelistId)).data.role == d.role &&
+        get(/databases/$(database)/documents/schools/$(schoolId)/staff_whitelist/$(d.whitelistId)).data.idGuru == d.idGuru;
+    }
+
+    function pinExists(schoolId, pinKey) {
+      return isValidId(pinKey) &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/pin_verifications/$(pinKey));
+    }
+
+    // =========================================================================
+    // 3. COLLECTION VALIDATORS
+    // =========================================================================
+    function isValidUserProfile(d, userId) {
+      return d.keys().hasAll(['uid', 'email', 'displayName', 'activeSchoolId', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['uid', 'email', 'displayName', 'activeSchoolId', 'createdAt', 'updatedAt']) &&
+             d.uid == userId &&
+             isBoundedStr(d.email, 120) &&
+             isNonEmptyStr(d.displayName, 100) &&
+             isBoundedStr(d.activeSchoolId, 64);
+    }
+
+    function isValidSchoolDirectory(d, schoolId) {
+      return d.keys().hasAll(['idSekolah', 'name', 'level', 'city', 'npsn', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['idSekolah', 'name', 'level', 'city', 'npsn', 'createdAt', 'updatedAt']) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.name, 140) &&
+             isNonEmptyStr(d.level, 40) &&
+             isNonEmptyStr(d.city, 80) &&
+             isBoundedStr(d.npsn, 40);
+    }
+
+    function isValidSchool(d, schoolId) {
+      return d.keys().hasAll([
+               'idSekolah', 'name', 'npsn', 'akreditasi', 'level', 'city', 'address',
+               'email', 'phone', 'website', 'kepalaSekolah', 'vision', 'mission',
+               'logoBase64', 'logoFileName', 'logoSizeBytes', 'themePreset',
+               'organizationStructure', 'academicYear', 'semester',
+               'ownerUid', 'isPro', 'storageUsedMb', 'storageMaxMb', 'activeAdNetwork',
+               'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'idSekolah', 'name', 'npsn', 'akreditasi', 'level', 'city', 'address',
+               'email', 'phone', 'website', 'kepalaSekolah', 'vision', 'mission',
+               'logoBase64', 'logoFileName', 'logoSizeBytes', 'themePreset',
+               'organizationStructure', 'academicYear', 'semester',
+               'ownerUid', 'isPro', 'storageUsedMb', 'storageMaxMb', 'activeAdNetwork',
+               'createdAt', 'updatedAt'
+             ]) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.name, 140) &&
+             isBoundedStr(d.npsn, 40) &&
+             isBoundedStr(d.akreditasi, 60) &&
+             isNonEmptyStr(d.level, 40) &&
+             isBoundedStr(d.city, 80) &&
+             isBoundedStr(d.address, 240) &&
+             isBoundedStr(d.email, 120) &&
+             isBoundedStr(d.phone, 40) &&
+             isBoundedStr(d.website, 160) &&
+             isBoundedStr(d.kepalaSekolah, 120) &&
+             isBoundedStr(d.vision, 500) &&
+             isBoundedStr(d.mission, 1200) &&
+             isBoundedStr(d.logoBase64, 250000) &&
+             isBoundedStr(d.logoFileName, 180) &&
+             d.logoSizeBytes is int && d.logoSizeBytes >= 0 && d.logoSizeBytes <= 5242880 &&
+             d.themePreset in ['BLUE_TEAL', 'INDIGO_SNEAT', 'EMERALD_FOREST', 'ROYAL_AMETHYST'] &&
+             isBoundedStr(d.organizationStructure, 2500) &&
+             isBoundedStr(d.academicYear, 32) &&
+             isBoundedStr(d.semester, 32) &&
+             isNonEmptyStr(d.ownerUid, 128) &&
+             d.isPro is bool &&
+             d.storageUsedMb is int && d.storageUsedMb >= 0 &&
+             d.storageMaxMb is int && d.storageMaxMb >= 500 && d.storageMaxMb <= 51200 &&
+             d.activeAdNetwork in ['ADMOB', 'PANGLE', 'UNDRADS', 'META'];
+    }
+
+    function isValidStaffWhitelist(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'email', 'name', 'nip', 'role', 'jabatan', 'idGuru', 'idKelas', 'idMapel', 'isVerified', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'email', 'name', 'nip', 'role', 'jabatan', 'idGuru', 'idKelas', 'idMapel', 'isVerified', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.email, 120) &&
+             isNonEmptyStr(d.name, 120) &&
+             isBoundedStr(d.nip, 40) &&
+             d.role in ['SUPERADMIN', 'KEPALA_SEKOLAH', 'GURU'] &&
+             isBoundedStr(d.jabatan, 120) &&
+             isBoundedStr(d.idGuru, 64) &&
+             d.idKelas is list && d.idKelas.size() <= 20 &&
+             d.idMapel is list && d.idMapel.size() <= 20 &&
+             d.isVerified is bool;
+    }
+
+    function isValidSchoolMember(d, schoolId, uid) {
+      return d.keys().hasAll(['uid', 'idSekolah', 'email', 'name', 'role', 'idGuru', 'idKelas', 'idMapel', 'whitelistId', 'studentId', 'className', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['uid', 'idSekolah', 'email', 'name', 'role', 'idGuru', 'idKelas', 'idMapel', 'whitelistId', 'studentId', 'className', 'createdAt', 'updatedAt']) &&
+             d.uid == uid &&
+             d.idSekolah == schoolId &&
+             isBoundedStr(d.email, 120) &&
+             isNonEmptyStr(d.name, 120) &&
+             d.role in ['SUPERADMIN', 'KEPALA_SEKOLAH', 'GURU', 'SISWA'] &&
+             isBoundedStr(d.idGuru, 64) &&
+             d.idKelas is list && d.idKelas.size() <= 20 &&
+             d.idMapel is list && d.idMapel.size() <= 20 &&
+             isBoundedStr(d.whitelistId, 128) &&
+             isBoundedStr(d.studentId, 64) &&
+             isBoundedStr(d.className, 64);
+    }
+
+    function isValidSchoolClass(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'name', 'gradeLevel', 'homeroomTeacher', 'room', 'studentCount', 'capacity', 'pinKelas', 'pinUpdatedAt', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'name', 'gradeLevel', 'homeroomTeacher', 'room', 'studentCount', 'capacity', 'pinKelas', 'pinUpdatedAt', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.name, 80) &&
+             d.gradeLevel is int && d.gradeLevel >= 1 && d.gradeLevel <= 13 &&
+             isBoundedStr(d.homeroomTeacher, 120) &&
+             isBoundedStr(d.room, 80) &&
+             d.studentCount is int && d.studentCount >= 0 && d.studentCount <= 100 &&
+             d.capacity is int && d.capacity >= 1 && d.capacity <= 100 &&
+             isNonEmptyStr(d.pinKelas, 12) && d.pinKelas.size() >= 4 &&
+             isBoundedStr(d.pinUpdatedAt, 32);
+    }
+
+    function isValidSchoolClassPublic(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'name', 'gradeLevel', 'homeroomTeacher', 'room', 'studentCount', 'capacity', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'name', 'gradeLevel', 'homeroomTeacher', 'room', 'studentCount', 'capacity', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.name, 80) &&
+             d.gradeLevel is int && d.gradeLevel >= 1 && d.gradeLevel <= 13 &&
+             isBoundedStr(d.homeroomTeacher, 120) &&
+             isBoundedStr(d.room, 80) &&
+             d.studentCount is int && d.studentCount >= 0 && d.studentCount <= 100 &&
+             d.capacity is int && d.capacity >= 1 && d.capacity <= 100;
+    }
+
+    function isValidPinVerification(d, schoolId) {
+      return d.keys().hasAll(['classId', 'className', 'idSekolah', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['classId', 'className', 'idSekolah', 'createdAt', 'updatedAt']) &&
+             isValidId(d.classId) &&
+             isNonEmptyStr(d.className, 80) &&
+             d.idSekolah == schoolId;
+    }
+
+    function isValidTeacher(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'nip', 'name', 'email', 'phone', 'subject', 'employmentStatus',
+               'jabatan', 'skNumber', 'skDate', 'tmtDate', 'tenureYears', 'rankGroup',
+               'weeklyHours', 'classesTaught', 'address', 'photoBase64', 'skDocumentName',
+               'skDocumentSizeBytes', 'isActiveAccount', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'nip', 'name', 'email', 'phone', 'subject', 'employmentStatus',
+               'jabatan', 'skNumber', 'skDate', 'tmtDate', 'tenureYears', 'rankGroup',
+               'weeklyHours', 'classesTaught', 'address', 'photoBase64', 'skDocumentName',
+               'skDocumentSizeBytes', 'isActiveAccount',
+               'additionalDuty', 'isNonSatmikal', 'satmikalOrigin', 'nonSatmikalVerified',
+               'mutationStatus', 'mutationTargetSchool', 'transferConfirmed',
+               'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isBoundedStr(d.nip, 40) &&
+             isNonEmptyStr(d.name, 120) &&
+             isNonEmptyStr(d.email, 120) &&
+             isBoundedStr(d.phone, 32) &&
+             isNonEmptyStr(d.subject, 100) &&
+             d.employmentStatus in ['PNS', 'P3K', 'PPPK', 'Honorer', 'Kontrak'] &&
+             isBoundedStr(d.jabatan, 120) &&
+             isBoundedStr(d.skNumber, 80) &&
+             isBoundedStr(d.skDate, 32) &&
+             isBoundedStr(d.tmtDate, 32) &&
+             d.tenureYears is int && d.tenureYears >= 0 && d.tenureYears <= 60 &&
+             isBoundedStr(d.rankGroup, 32) &&
+             d.weeklyHours is int && d.weeklyHours >= 0 && d.weeklyHours <= 60 &&
+             d.classesTaught is list && d.classesTaught.size() <= 20 &&
+             isBoundedStr(d.address, 240) &&
+             isBoundedStr(d.photoBase64, 200000) &&
+             isBoundedStr(d.skDocumentName, 180) &&
+             d.skDocumentSizeBytes is int && d.skDocumentSizeBytes >= 0 && d.skDocumentSizeBytes <= 5242880 &&
+             d.isActiveAccount is bool &&
+             (!('additionalDuty' in d) || isBoundedStr(d.additionalDuty, 120)) &&
+             (!('isNonSatmikal' in d) || d.isNonSatmikal is bool) &&
+             (!('satmikalOrigin' in d) || isBoundedStr(d.satmikalOrigin, 140)) &&
+             (!('nonSatmikalVerified' in d) || d.nonSatmikalVerified is bool) &&
+             (!('mutationStatus' in d) || d.mutationStatus in ['NONE', 'DIAJUKAN', 'DISETUJUI', 'DITOLAK']) &&
+             (!('mutationTargetSchool' in d) || isBoundedStr(d.mutationTargetSchool, 140)) &&
+             (!('transferConfirmed' in d) || d.transferConfirmed is bool);
+    }
+
+    function isValidStudent(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'nisn', 'nis', 'name', 'className', 'gender', 'religion',
+               'phone', 'address', 'birthDate', 'parentName', 'parentPhone', 'promotionHistory',
+               'status', 'userId', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'nisn', 'nis', 'name', 'className', 'gender', 'religion',
+               'phone', 'address', 'birthDate', 'parentName', 'parentPhone', 'promotionHistory',
+               'status', 'userId', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.nisn, 32) &&
+             isBoundedStr(d.nis, 32) &&
+             isNonEmptyStr(d.name, 120) &&
+             isNonEmptyStr(d.className, 64) &&
+             d.gender in ['L', 'P'] &&
+             isBoundedStr(d.religion, 40) &&
+             isBoundedStr(d.phone, 32) &&
+             isBoundedStr(d.address, 240) &&
+             isBoundedStr(d.birthDate, 32) &&
+             isBoundedStr(d.parentName, 120) &&
+             isBoundedStr(d.parentPhone, 32) &&
+             isBoundedStr(d.promotionHistory, 500) &&
+             d.status in ['Aktif', 'Pindah', 'Lulus', 'Dikeluarkan'] &&
+             isBoundedStr(d.userId, 128);
+    }
+
+    function isValidSubject(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'code', 'name', 'category', 'kkm', 'hoursPerWeek', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'code', 'name', 'category', 'kkm', 'hoursPerWeek', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.code, 32) &&
+             isNonEmptyStr(d.name, 100) &&
+             isNonEmptyStr(d.category, 60) &&
+             d.kkm is int && d.kkm >= 0 && d.kkm <= 100 &&
+             d.hoursPerWeek is int && d.hoursPerWeek >= 1 && d.hoursPerWeek <= 40;
+    }
+
+    function isValidHoliday(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'date', 'name', 'category', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'date', 'name', 'category', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.date, 32) &&
+             isNonEmptyStr(d.name, 140) &&
+             isBoundedStr(d.category, 60);
+    }
+
+    function isValidAnnouncement(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'title', 'content', 'targetRole', 'authorName', 'publishedDate', 'userId', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'title', 'content', 'targetRole', 'authorName', 'publishedDate', 'userId', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.title, 180) &&
+             isNonEmptyStr(d.content, 2000) &&
+             d.targetRole in ['Semua', 'Guru', 'Siswa'] &&
+             isNonEmptyStr(d.authorName, 120) &&
+             isNonEmptyStr(d.publishedDate, 32) &&
+             isBoundedStr(d.userId, 128);
+    }
+
+    function isValidLoginLog(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'uid', 'email', 'displayName', 'role', 'timestamp', 'deviceInfo', 'status', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'uid', 'email', 'displayName', 'role', 'timestamp', 'deviceInfo', 'status', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.uid, 128) &&
+             isBoundedStr(d.email, 120) &&
+             isNonEmptyStr(d.displayName, 120) &&
+             isNonEmptyStr(d.role, 32) &&
+             isNonEmptyStr(d.timestamp, 40) &&
+             isBoundedStr(d.deviceInfo, 120) &&
+             isNonEmptyStr(d.status, 32);
+    }
+
+    function isValidAttendance(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'date', 'className', 'studentId', 'studentName', 'status', 'notes', 'teacherId', 'subjectName', 'studentUserId', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'date', 'className', 'studentId', 'studentName', 'status', 'notes', 'teacherId', 'subjectName', 'studentUserId', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.date, 32) &&
+             isNonEmptyStr(d.className, 64) &&
+             isValidId(d.studentId) &&
+             isNonEmptyStr(d.studentName, 120) &&
+             d.status in ['HADIR', 'SAKIT', 'IZIN', 'ALPHA'] &&
+             isBoundedStr(d.notes, 300) &&
+             isBoundedStr(d.teacherId, 64) &&
+             isBoundedStr(d.subjectName, 100) &&
+             isBoundedStr(d.studentUserId, 128);
+    }
+
+    function isValidGrade(d, schoolId) {
+      return d.keys().hasAll(['id', 'idSekolah', 'studentId', 'studentName', 'className', 'subjectName', 'tugasScore', 'utsScore', 'uasScore', 'teacherId', 'studentUserId', 'createdAt', 'updatedAt']) &&
+             d.keys().hasOnly(['id', 'idSekolah', 'studentId', 'studentName', 'className', 'subjectName', 'tugasScore', 'utsScore', 'uasScore', 'teacherId', 'studentUserId', 'createdAt', 'updatedAt']) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isValidId(d.studentId) &&
+             isNonEmptyStr(d.studentName, 120) &&
+             isNonEmptyStr(d.className, 64) &&
+             isNonEmptyStr(d.subjectName, 100) &&
+             d.tugasScore is number && d.tugasScore >= 0 && d.tugasScore <= 100 &&
+             d.utsScore is number && d.utsScore >= 0 && d.utsScore <= 100 &&
+             d.uasScore is number && d.uasScore >= 0 && d.uasScore <= 100 &&
+             isBoundedStr(d.teacherId, 64) &&
+             isBoundedStr(d.studentUserId, 128);
+    }
+
+    function isValidLessonPlan(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'title', 'curriculum', 'subject', 'className',
+               'meetingCount', 'duration', 'learningObjectives', 'fileName',
+               'teacherId', 'teacherName', 'teacherEmail', 'userId', 'reviewNotes',
+               'fileSizeBytes', 'storageUrl', 'status', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'title', 'curriculum', 'subject', 'className',
+               'meetingCount', 'duration', 'learningObjectives', 'fileName',
+               'teacherId', 'teacherName', 'teacherEmail', 'userId', 'reviewNotes',
+               'fileSizeBytes', 'storageUrl', 'status', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.title, 180) &&
+             isNonEmptyStr(d.curriculum, 80) &&
+             isNonEmptyStr(d.subject, 100) &&
+             isNonEmptyStr(d.className, 64) &&
+             d.meetingCount is int && d.meetingCount >= 1 && d.meetingCount <= 60 &&
+             isNonEmptyStr(d.duration, 60) &&
+             isBoundedStr(d.learningObjectives, 2000) &&
+             isNonEmptyStr(d.fileName, 180) &&
+             isNonEmptyStr(d.teacherId, 64) &&
+             isNonEmptyStr(d.teacherName, 120) &&
+             isNonEmptyStr(d.teacherEmail, 120) &&
+             isNonEmptyStr(d.userId, 128) &&
+             isBoundedStr(d.reviewNotes, 1000) &&
+             d.fileSizeBytes is int && d.fileSizeBytes >= 0 && d.fileSizeBytes <= 5242880 &&
+             isBoundedStr(d.storageUrl, 300) &&
+             d.status in ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED'];
+    }
+
+    function isValidTeachingJournal(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'date', 'teacherId', 'teacherName', 'userId',
+               'subject', 'className', 'periodTime', 'topic', 'activities',
+               'obstacles', 'reflection', 'documentationFileName', 'fileSizeBytes',
+               'isCompleted', 'monthKey', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'date', 'teacherId', 'teacherName', 'userId',
+               'subject', 'className', 'periodTime', 'topic', 'activities',
+               'obstacles', 'reflection', 'documentationFileName', 'fileSizeBytes',
+               'isCompleted', 'monthKey', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.date, 32) &&
+             isNonEmptyStr(d.teacherId, 64) &&
+             isNonEmptyStr(d.teacherName, 120) &&
+             isNonEmptyStr(d.userId, 128) &&
+             isNonEmptyStr(d.subject, 100) &&
+             isNonEmptyStr(d.className, 64) &&
+             isNonEmptyStr(d.periodTime, 80) &&
+             isNonEmptyStr(d.topic, 200) &&
+             isNonEmptyStr(d.activities, 2000) &&
+             isBoundedStr(d.obstacles, 1000) &&
+             isBoundedStr(d.reflection, 1000) &&
+             isBoundedStr(d.documentationFileName, 180) &&
+             d.fileSizeBytes is int && d.fileSizeBytes >= 0 && d.fileSizeBytes <= 5242880 &&
+             d.isCompleted is bool &&
+             isBoundedStr(d.monthKey, 16);
+    }
+
+    function isValidAssignment(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'className', 'subject', 'title', 'description',
+               'deadline', 'type', 'fileName', 'fileSizeBytes', 'teacherId', 'userId',
+               'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'className', 'subject', 'title', 'description',
+               'deadline', 'type', 'fileName', 'fileSizeBytes', 'teacherId', 'userId',
+               'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.className, 64) &&
+             isNonEmptyStr(d.subject, 100) &&
+             isNonEmptyStr(d.title, 180) &&
+             isBoundedStr(d.description, 2000) &&
+             isNonEmptyStr(d.deadline, 80) &&
+             d.type in ['Tugas', 'Materi', 'Latihan', 'Uji Kompetensi'] &&
+             isBoundedStr(d.fileName, 180) &&
+             d.fileSizeBytes is int && d.fileSizeBytes >= 0 && d.fileSizeBytes <= 5242880 &&
+             isNonEmptyStr(d.teacherId, 64) &&
+             isNonEmptyStr(d.userId, 128);
+    }
+
+    function isValidNotification(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'recipientEmailOrRole', 'title', 'message',
+               'timestamp', 'isRead', 'type', 'senderUid', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'recipientEmailOrRole', 'title', 'message',
+               'timestamp', 'isRead', 'type', 'senderUid', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.recipientEmailOrRole, 120) &&
+             isNonEmptyStr(d.title, 160) &&
+             isNonEmptyStr(d.message, 1000) &&
+             isNonEmptyStr(d.timestamp, 40) &&
+             d.isRead is bool &&
+      isNonEmptyStr(d.type, 40) &&
+             isNonEmptyStr(d.senderUid, 128);
+    }
+
+    function isValidPtkAttendance(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'teacherId', 'teacherName', 'date',
+               'status', 'notes', 'recordedByUid', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'teacherId', 'teacherName', 'date',
+               'status', 'notes', 'recordedByUid', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isValidId(d.teacherId) &&
+             isNonEmptyStr(d.teacherName, 120) &&
+             isNonEmptyStr(d.date, 32) &&
+             d.status in ['HADIR', 'SAKIT', 'IZIN', 'CUTI', 'DINAS_LUAR'] &&
+             isBoundedStr(d.notes, 300) &&
+             isBoundedStr(d.recordedByUid, 128);
+    }
+
+    function isValidTeachingSchedule(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'dayOfWeek', 'startTime', 'endTime',
+               'className', 'subjectName', 'teacherId', 'teacherName', 'room',
+               'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'dayOfWeek', 'startTime', 'endTime',
+               'className', 'subjectName', 'teacherId', 'teacherName', 'room',
+               'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             d.dayOfWeek in ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'] &&
+             isNonEmptyStr(d.startTime, 16) &&
+             isNonEmptyStr(d.endTime, 16) &&
+             isNonEmptyStr(d.className, 64) &&
+             isNonEmptyStr(d.subjectName, 100) &&
+             isNonEmptyStr(d.teacherId, 64) &&
+             isNonEmptyStr(d.teacherName, 120) &&
+             isBoundedStr(d.room, 80);
+    }
+
+    function isValidForumMessage(d, schoolId) {
+      return d.keys().hasAll([
+               'id', 'idSekolah', 'senderUid', 'senderName', 'senderRole',
+               'messageType', 'textContent', 'voiceBase64', 'voiceDurationSec',
+               'sentDate', 'sentTime', 'isArchived', 'createdAt', 'updatedAt'
+             ]) &&
+             d.keys().hasOnly([
+               'id', 'idSekolah', 'senderUid', 'senderName', 'senderRole',
+               'messageType', 'textContent', 'voiceBase64', 'voiceDurationSec',
+               'sentDate', 'sentTime', 'isArchived', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(d.id) &&
+             d.idSekolah == schoolId &&
+             isNonEmptyStr(d.senderUid, 128) &&
+             isNonEmptyStr(d.senderName, 120) &&
+             d.senderRole in ['SUPERADMIN', 'GURU'] &&
+             d.messageType in ['TEXT', 'VOICE_NOTE'] &&
+             isBoundedStr(d.textContent, 1000) &&
+             isBoundedStr(d.voiceBase64, 140000) &&
+             d.voiceDurationSec is int && d.voiceDurationSec >= 0 && d.voiceDurationSec <= 30 &&
+             isNonEmptyStr(d.sentDate, 32) &&
+             isNonEmptyStr(d.sentTime, 16) &&
+             d.isArchived is bool &&
+             (
+               (d.messageType == 'TEXT' && d.textContent.size() > 0 && d.voiceBase64.size() == 0 && d.voiceDurationSec == 0) ||
+               (d.messageType == 'VOICE_NOTE' && d.voiceBase64.size() > 0 && d.voiceDurationSec >= 1 && d.voiceDurationSec <= 30)
+             );
+    }
+
+    // =========================================================================
+    // 4. COLLECTION RULES
+    // =========================================================================
+
+    match /users/{userId} {
+      allow get, delete: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+        isValidUserProfile(request.resource.data, userId) &&
+        isValidCreateTimestamps(request.resource.data);
+      allow update: if isOwner(userId) &&
+        isValidUserProfile(request.resource.data, userId) &&
+        request.resource.data.uid == resource.data.uid &&
+        isValidUpdateTimestamp(request.resource.data, resource.data);
+    }
+
+    match /school_directory/{schoolId} {
+      allow get, list: if isSignedIn();
+      allow create: if isValidId(schoolId) &&
+        isSchoolOwnerAfter(schoolId) &&
+        isValidSchoolDirectory(request.resource.data, schoolId) &&
+        isValidCreateTimestamps(request.resource.data);
+      allow update: if isSchoolAdmin(schoolId) &&
+        isValidSchoolDirectory(request.resource.data, schoolId) &&
+        isValidUpdateTimestamp(request.resource.data, resource.data);
+      allow delete: if isSchoolOwner(schoolId);
+    }
+
+    // CollectionGroup lookup for auto-discovering staff assignments upon Google Sign-In
+    match /{path=**}/staff_whitelist/{whitelistId} {
+      allow read: if isSignedIn() &&
+        hasVerifiedEmail() &&
+        resource.data.email == request.auth.token.email;
+    }
+
+    match /schools/{schoolId} {
+      allow get: if isSchoolMember(schoolId);
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isValidId(schoolId) &&
+        isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        isValidSchool(request.resource.data, schoolId) &&
+        isValidCreateTimestamps(request.resource.data);
+      allow update: if isSchoolAdmin(schoolId) &&
+        isValidSchool(request.resource.data, schoolId) &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.idSekolah == resource.data.idSekolah &&
+        isValidUpdateTimestamp(request.resource.data, resource.data);
+      allow delete: if isSchoolOwner(schoolId);
+
+      // Whitelist Akun Staff (Admin, Kepsek, Guru)
+      match /staff_whitelist/{whitelistId} {
+        allow get, list: if isSchoolAdmin(schoolId) ||
+          (isSignedIn() && hasVerifiedEmail() && resource.data.email == request.auth.token.email);
+        allow create: if isValidId(whitelistId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidStaffWhitelist(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidStaffWhitelist(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Verified UID Role Membership
+      match /members/{uid} {
+        allow get: if isOwner(uid) || isSchoolAdmin(schoolId);
+        allow list: if isSchoolAdmin(schoolId);
+        allow create: if isValidId(uid) &&
+          isValidSchoolMember(request.resource.data, schoolId, uid) &&
+          isValidCreateTimestamps(request.resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            isSchoolOwnerAfter(schoolId) ||
+            (isOwner(uid) && hasVerifiedEmail() &&
+              request.resource.data.role in ['SUPERADMIN', 'KEPALA_SEKOLAH', 'GURU'] &&
+              whitelistMatches(schoolId, request.resource.data)) ||
+            (isOwner(uid) &&
+              request.resource.data.role == 'SISWA' &&
+              pinExists(schoolId, request.resource.data.whitelistId))
+          );
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidSchoolMember(request.resource.data, schoolId, uid) &&
+          request.resource.data.uid == resource.data.uid &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId) || isOwner(uid);
+      }
+
+      // Classes (Protected: contains pinKelas -> Staff Only)
+      match /classes/{classId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(classId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidSchoolClass(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidSchoolClass(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Public Class Catalog (No PIN)
+      match /classes_public/{classId} {
+        allow get, list: if isSignedIn();
+        allow create: if isValidId(classId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidSchoolClassPublic(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidSchoolClassPublic(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Class PIN Verification Lookup (get only, zero list leak)
+      match /pin_verifications/{verificationId} {
+        allow get: if isSignedIn();
+        allow list: if isSchoolAdmin(schoolId);
+        allow create: if isValidId(verificationId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidPinVerification(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidPinVerification(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Teachers (Admin CRUD; Staff Read)
+      match /teachers/{teacherId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(teacherId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidTeacher(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidTeacher(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Students (Staff sees school students; Student sees ONLY own record)
+      match /students/{studentId} {
+        allow get, list: if isSchoolStaff(schoolId) ||
+          (isSchoolMember(schoolId) && resource.data.userId == request.auth.uid);
+        allow create: if isValidId(studentId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidStudent(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidStudent(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Subjects
+      match /subjects/{subjectId} {
+        allow get, list: if isSchoolMember(schoolId);
+        allow create: if isValidId(subjectId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidSubject(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidSubject(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Academic Holidays (Admin CRUD; SchoolMember Read)
+      match /holidays/{holidayId} {
+        allow get, list: if isSchoolMember(schoolId);
+        allow create: if isValidId(holidayId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidHoliday(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidHoliday(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // School Announcements (Admin CRUD; SchoolMember Read)
+      match /announcements/{announcementId} {
+        allow get, list: if isSchoolMember(schoolId);
+        allow create: if isValidId(announcementId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidAnnouncement(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidAnnouncement(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Login Activity Audit Trail (Member creates own log; Admin ONLY reads/deletes)
+      match /login_logs/{logId} {
+        allow get, list, delete: if isSchoolAdmin(schoolId);
+        allow create: if isValidId(logId) &&
+          isSchoolMember(schoolId) &&
+          request.resource.data.uid == request.auth.uid &&
+          isValidLoginLog(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+      }
+
+      // Attendance
+      match /attendance/{attendanceId} {
+        allow get, list: if isSchoolStaff(schoolId) ||
+          (isSchoolMember(schoolId) && resource.data.studentUserId == request.auth.uid);
+        allow create: if isValidId(attendanceId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId) || isSchoolGuru(schoolId)) &&
+          isValidAttendance(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if (isSchoolAdmin(schoolId) || isSchoolGuru(schoolId)) &&
+          isValidAttendance(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Grades
+      match /grades/{gradeId} {
+        allow get, list: if isSchoolStaff(schoolId) ||
+          (isSchoolMember(schoolId) && resource.data.studentUserId == request.auth.uid);
+        allow create: if isValidId(gradeId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId) || isSchoolGuru(schoolId)) &&
+          isValidGrade(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if (isSchoolAdmin(schoolId) || isSchoolGuru(schoolId)) &&
+          isValidGrade(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Lesson Plans (RPP):
+      // - Admin: full CRUD + Approve/Reject
+      // - Guru: CRUD own RPPs (<= 5MB), submit for review; cannot self-approve
+      // - Kepsek: read-only on RPP content; update ONLY ['status', 'reviewNotes', 'updatedAt']
+      match /lesson_plans/{rppId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(rppId) &&
+          isValidLessonPlan(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            isSchoolOwnerAfter(schoolId) ||
+            (isSchoolGuru(schoolId) &&
+              request.resource.data.userId == request.auth.uid &&
+              request.resource.data.status in ['DRAFT', 'SUBMITTED'])
+          );
+        allow update: if isValidLessonPlan(request.resource.data, schoolId) &&
+          request.resource.data.userId == resource.data.userId &&
+          isValidUpdateTimestamp(request.resource.data, resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            (isSchoolKepsek(schoolId) &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewNotes', 'updatedAt']) &&
+              request.resource.data.status in ['APPROVED', 'REJECTED', 'SUBMITTED']) ||
+            (isSchoolGuru(schoolId) &&
+              resource.data.userId == request.auth.uid &&
+              request.resource.data.status in ['DRAFT', 'SUBMITTED'] &&
+              request.resource.data.reviewNotes == resource.data.reviewNotes)
+          );
+        allow delete: if isSchoolAdmin(schoolId) ||
+          (isSchoolGuru(schoolId) && resource.data.userId == request.auth.uid && resource.data.status != 'APPROVED');
+      }
+
+      // Teaching Journals
+      match /teaching_journals/{journalId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(journalId) &&
+          isValidTeachingJournal(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            isSchoolOwnerAfter(schoolId) ||
+            (isSchoolGuru(schoolId) && request.resource.data.userId == request.auth.uid)
+          );
+        allow update: if isValidTeachingJournal(request.resource.data, schoolId) &&
+          request.resource.data.userId == resource.data.userId &&
+          isValidUpdateTimestamp(request.resource.data, resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            (isSchoolGuru(schoolId) && resource.data.userId == request.auth.uid)
+          );
+        allow delete: if isSchoolAdmin(schoolId) ||
+          (isSchoolGuru(schoolId) && resource.data.userId == request.auth.uid);
+      }
+
+      // Assignments, Materi, Latihan & Uji Kompetensi
+      match /assignments/{assignmentId} {
+        allow get, list: if isSchoolMember(schoolId);
+        allow create: if isValidId(assignmentId) &&
+          isValidAssignment(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            isSchoolOwnerAfter(schoolId) ||
+            (isSchoolGuru(schoolId) && request.resource.data.userId == request.auth.uid)
+          );
+        allow update: if isValidAssignment(request.resource.data, schoolId) &&
+          request.resource.data.userId == resource.data.userId &&
+          isValidUpdateTimestamp(request.resource.data, resource.data) && (
+            isSchoolAdmin(schoolId) ||
+            (isSchoolGuru(schoolId) && resource.data.userId == request.auth.uid)
+          );
+        allow delete: if isSchoolAdmin(schoolId) ||
+          (isSchoolGuru(schoolId) && resource.data.userId == request.auth.uid);
+      }
+
+      // Notifications
+      match /notifications/{notifId} {
+        allow get, list: if isSchoolAdmin(schoolId) ||
+          isSchoolKepsek(schoolId) ||
+          (isSchoolGuru(schoolId) && (
+            resource.data.recipientEmailOrRole == request.auth.token.email ||
+            resource.data.recipientEmailOrRole == 'GURU'
+          ));
+        allow create: if isValidId(notifId) &&
+          (isSchoolStaff(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          request.resource.data.senderUid == request.auth.uid &&
+          isValidNotification(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolStaff(schoolId) &&
+          isValidNotification(request.resource.data, schoolId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'updatedAt']) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // PTK Daily Attendance (Admin CRUD; Staff Read)
+      match /ptk_attendance/{attId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(attId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidPtkAttendance(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidPtkAttendance(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Teaching Schedules (Admin CRUD; Staff Read)
+      match /teaching_schedules/{scheduleId} {
+        allow get, list: if isSchoolStaff(schoolId);
+        allow create: if isValidId(scheduleId) &&
+          (isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          isValidTeachingSchedule(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidTeachingSchedule(request.resource.data, schoolId) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
+      // Institution Discussion Forum (Chat + Voice-Over <=30s ONLY; Admin + Guru ONLY; Siswa & Kepsek blocked)
+      match /forum_messages/{msgId} {
+        allow get, list: if isForumEligible(schoolId);
+        allow create: if isValidId(msgId) &&
+          (isForumEligible(schoolId) || isSchoolOwnerAfter(schoolId)) &&
+          request.resource.data.senderUid == request.auth.uid &&
+          request.resource.data.isArchived == false &&
+          (
+            ((isSchoolAdmin(schoolId) || isSchoolOwnerAfter(schoolId)) && request.resource.data.senderRole in ['SUPERADMIN', 'GURU']) ||
+            (isSchoolGuru(schoolId) && request.resource.data.senderRole == 'GURU')
+          ) &&
+          isValidForumMessage(request.resource.data, schoolId) &&
+          isValidCreateTimestamps(request.resource.data);
+        allow update: if isSchoolAdmin(schoolId) &&
+          isValidForumMessage(request.resource.data, schoolId) &&
+          request.resource.data.senderUid == resource.data.senderUid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isArchived', 'updatedAt']) &&
+          isValidUpdateTimestamp(request.resource.data, resource.data);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+    }
+  }
+}

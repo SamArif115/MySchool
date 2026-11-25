@@ -1,0 +1,560 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Authenticated user profile storing last active school tenant and account metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "Verified Google account email" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "activeSchoolId": { "type": "string", "description": "Active multi-tenant school ID" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "activeSchoolId", "createdAt", "updatedAt"]
+    },
+    "SchoolDirectory": {
+      "title": "School Directory",
+      "description": "Non-PII school catalog used for selecting a school during onboarding",
+      "type": "object",
+      "properties": {
+        "idSekolah": { "type": "string" },
+        "name": { "type": "string" },
+        "level": { "type": "string" },
+        "city": { "type": "string" },
+        "npsn": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["idSekolah", "name", "level", "city", "npsn", "createdAt", "updatedAt"]
+    },
+    "School": {
+      "title": "School Tenant",
+      "description": "Multi-tenant school profile, branding logo & theme, academic master settings, subscription plan, storage quota, and ad config",
+      "type": "object",
+      "properties": {
+        "idSekolah": { "type": "string" },
+        "name": { "type": "string" },
+        "npsn": { "type": "string" },
+        "akreditasi": { "type": "string" },
+        "level": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "website": { "type": "string" },
+        "kepalaSekolah": { "type": "string" },
+        "vision": { "type": "string" },
+        "mission": { "type": "string" },
+        "logoBase64": { "type": "string" },
+        "logoFileName": { "type": "string" },
+        "logoSizeBytes": { "type": "integer" },
+        "themePreset": { "type": "string", "enum": ["BLUE_TEAL", "INDIGO_SNEAT", "EMERALD_FOREST", "ROYAL_AMETHYST"] },
+        "organizationStructure": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "semester": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "isPro": { "type": "boolean" },
+        "storageUsedMb": { "type": "integer" },
+        "storageMaxMb": { "type": "integer" },
+        "activeAdNetwork": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "idSekolah", "name", "npsn", "akreditasi", "level", "city", "address",
+        "email", "phone", "website", "kepalaSekolah", "vision", "mission",
+        "logoBase64", "logoFileName", "logoSizeBytes", "themePreset",
+        "organizationStructure", "academicYear", "semester",
+        "ownerUid", "isPro", "storageUsedMb", "storageMaxMb", "activeAdNetwork",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "StaffWhitelist": {
+      "title": "Staff Whitelist",
+      "description": "Admin-registered Guru, Kepala Sekolah, and Admin whitelist with NIP, jabatan, idGuru, idKelas, idMapel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "nip": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPERADMIN", "KEPALA_SEKOLAH", "GURU"] },
+        "jabatan": { "type": "string" },
+        "idGuru": { "type": "string" },
+        "idKelas": { "type": "array", "items": { "type": "string" } },
+        "idMapel": { "type": "array", "items": { "type": "string" } },
+        "isVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "email", "name", "nip", "role", "jabatan",
+        "idGuru", "idKelas", "idMapel", "isVerified", "createdAt", "updatedAt"
+      ]
+    },
+    "SchoolMember": {
+      "title": "School Member",
+      "description": "Verified role binding for an authenticated UID inside a school tenant",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPERADMIN", "KEPALA_SEKOLAH", "GURU", "SISWA"] },
+        "idGuru": { "type": "string" },
+        "idKelas": { "type": "array", "items": { "type": "string" } },
+        "idMapel": { "type": "array", "items": { "type": "string" } },
+        "whitelistId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "className": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid", "idSekolah", "email", "name", "role", "idGuru",
+        "idKelas", "idMapel", "whitelistId", "studentId", "className",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "SchoolClass": {
+      "title": "School Class (Protected)",
+      "description": "Class entity including sensitive pinKelas restricted to Admin/Staff",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "name": { "type": "string" },
+        "gradeLevel": { "type": "integer" },
+        "homeroomTeacher": { "type": "string" },
+        "room": { "type": "string" },
+        "studentCount": { "type": "integer" },
+        "capacity": { "type": "integer" },
+        "pinKelas": { "type": "string" },
+        "pinUpdatedAt": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "name", "gradeLevel", "homeroomTeacher", "room",
+        "studentCount", "capacity", "pinKelas", "pinUpdatedAt", "createdAt", "updatedAt"
+      ]
+    },
+    "SchoolClassPublic": {
+      "title": "School Class Public",
+      "description": "Public class catalog without PIN for student login picker",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "name": { "type": "string" },
+        "gradeLevel": { "type": "integer" },
+        "homeroomTeacher": { "type": "string" },
+        "room": { "type": "string" },
+        "studentCount": { "type": "integer" },
+        "capacity": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "name", "gradeLevel", "homeroomTeacher", "room",
+        "studentCount", "capacity", "createdAt", "updatedAt"
+      ]
+    },
+    "PinVerification": {
+      "title": "Class PIN Verification",
+      "description": "Lookup document keyed by classId_pin for zero-exposure PIN verification",
+      "type": "object",
+      "properties": {
+        "classId": { "type": "string" },
+        "className": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["classId", "className", "idSekolah", "createdAt", "updatedAt"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Detailed teacher record including kepegawaian SK metadata, PNS golongan/ruang, weekly hours, and photo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "nip": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "subject": { "type": "string" },
+        "employmentStatus": { "type": "string", "enum": ["PNS", "P3K", "PPPK", "Honorer", "Kontrak"] },
+        "jabatan": { "type": "string" },
+        "skNumber": { "type": "string" },
+        "skDate": { "type": "string" },
+        "tmtDate": { "type": "string" },
+        "tenureYears": { "type": "integer" },
+        "rankGroup": { "type": "string" },
+        "weeklyHours": { "type": "integer" },
+        "classesTaught": { "type": "array", "items": { "type": "string" } },
+        "address": { "type": "string" },
+        "photoBase64": { "type": "string" },
+        "skDocumentName": { "type": "string" },
+        "skDocumentSizeBytes": { "type": "integer" },
+        "isActiveAccount": { "type": "boolean" },
+        "additionalDuty": { "type": "string", "description": "Tugas tambahan PTK (Wali Kelas, Kepala Lab, dll)" },
+        "isNonSatmikal": { "type": "boolean" },
+        "satmikalOrigin": { "type": "string" },
+        "nonSatmikalVerified": { "type": "boolean" },
+        "mutationStatus": { "type": "string", "enum": ["NONE", "DIAJUKAN", "DISETUJUI", "DITOLAK"] },
+        "mutationTargetSchool": { "type": "string" },
+        "transferConfirmed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "nip", "name", "email", "phone", "subject", "employmentStatus",
+        "jabatan", "skNumber", "skDate", "tmtDate", "tenureYears", "rankGroup",
+        "weeklyHours", "classesTaught", "address", "photoBase64", "skDocumentName",
+        "skDocumentSizeBytes", "isActiveAccount", "createdAt", "updatedAt"
+      ]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Complete student registration record including NISN, NIS, birth date, parent info, status, and promotion history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "nisn": { "type": "string" },
+        "nis": { "type": "string" },
+        "name": { "type": "string" },
+        "className": { "type": "string" },
+        "gender": { "type": "string" },
+        "religion": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "parentName": { "type": "string" },
+        "parentPhone": { "type": "string" },
+        "promotionHistory": { "type": "string" },
+        "status": { "type": "string", "enum": ["Aktif", "Pindah", "Lulus", "Dikeluarkan"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "nisn", "nis", "name", "className", "gender", "religion",
+        "phone", "address", "birthDate", "parentName", "parentPhone", "promotionHistory",
+        "status", "userId", "createdAt", "updatedAt"
+      ]
+    },
+    "Subject": {
+      "title": "Subject",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "kkm": { "type": "integer" },
+        "hoursPerWeek": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "code", "name", "category", "kkm", "hoursPerWeek", "createdAt", "updatedAt"]
+    },
+    "SchoolHoliday": {
+      "title": "School Holiday",
+      "description": "Academic calendar holidays configured by Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "date": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "date", "name", "category", "createdAt", "updatedAt"]
+    },
+    "SchoolAnnouncement": {
+      "title": "School Announcement",
+      "description": "Official school announcements published by Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "targetRole": { "type": "string" },
+        "authorName": { "type": "string" },
+        "publishedDate": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "title", "content", "targetRole", "authorName", "publishedDate", "userId", "createdAt", "updatedAt"]
+    },
+    "LoginActivityLog": {
+      "title": "Login Activity Log",
+      "description": "Login activity audit trail accessible by Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "deviceInfo": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "uid", "email", "displayName", "role", "timestamp", "deviceInfo", "status", "createdAt", "updatedAt"]
+    },
+    "AttendanceRecord": {
+      "title": "Attendance Record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "date": { "type": "string" },
+        "className": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "status": { "type": "string", "enum": ["HADIR", "SAKIT", "IZIN", "ALPHA"] },
+        "notes": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "studentUserId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "date", "className", "studentId", "studentName", "status", "notes", "teacherId", "subjectName", "studentUserId", "createdAt", "updatedAt"]
+    },
+    "GradeRecord": {
+      "title": "Grade Record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "className": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "tugasScore": { "type": "number" },
+        "utsScore": { "type": "number" },
+        "uasScore": { "type": "number" },
+        "teacherId": { "type": "string" },
+        "studentUserId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "studentId", "studentName", "className", "subjectName", "tugasScore", "utsScore", "uasScore", "teacherId", "studentUserId", "createdAt", "updatedAt"]
+    },
+    "LessonPlan": {
+      "title": "Lesson Plan (RPP)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "title": { "type": "string" },
+        "curriculum": { "type": "string" },
+        "subject": { "type": "string" },
+        "className": { "type": "string" },
+        "meetingCount": { "type": "integer" },
+        "duration": { "type": "string" },
+        "learningObjectives": { "type": "string" },
+        "fileName": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "teacherEmail": { "type": "string" },
+        "userId": { "type": "string" },
+        "reviewNotes": { "type": "string" },
+        "fileSizeBytes": { "type": "integer" },
+        "storageUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "title", "curriculum", "subject", "className",
+        "meetingCount", "duration", "learningObjectives", "fileName",
+        "teacherId", "teacherName", "teacherEmail", "userId", "reviewNotes",
+        "fileSizeBytes", "storageUrl", "status", "createdAt", "updatedAt"
+      ]
+    },
+    "TeachingJournal": {
+      "title": "Teaching Journal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "date": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "className": { "type": "string" },
+        "periodTime": { "type": "string" },
+        "topic": { "type": "string" },
+        "activities": { "type": "string" },
+        "obstacles": { "type": "string" },
+        "reflection": { "type": "string" },
+        "documentationFileName": { "type": "string" },
+        "fileSizeBytes": { "type": "integer" },
+        "isCompleted": { "type": "boolean" },
+        "monthKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "date", "teacherId", "teacherName", "userId",
+        "subject", "className", "periodTime", "topic", "activities",
+        "obstacles", "reflection", "documentationFileName", "fileSizeBytes",
+        "isCompleted", "monthKey", "createdAt", "updatedAt"
+      ]
+    },
+    "StudentAssignment": {
+      "title": "Student Assignment / Materi / Uji Kompetensi",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "className": { "type": "string" },
+        "subject": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "deadline": { "type": "string" },
+        "type": { "type": "string", "enum": ["Tugas", "Materi", "Latihan", "Uji Kompetensi"] },
+        "fileName": { "type": "string" },
+        "fileSizeBytes": { "type": "integer" },
+        "teacherId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "className", "subject", "title", "description",
+        "deadline", "type", "fileName", "fileSizeBytes", "teacherId", "userId",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "AppNotification": {
+      "title": "App Notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "recipientEmailOrRole": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "type": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "recipientEmailOrRole", "title", "message",
+        "timestamp", "isRead", "type", "senderUid", "createdAt", "updatedAt"
+      ]
+    },
+    "PtkAttendanceRecord": {
+      "title": "PTK Attendance Record",
+      "description": "Presensi harian Pendidik dan Tenaga Kependidikan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["HADIR", "SAKIT", "IZIN", "CUTI", "DINAS_LUAR"] },
+        "notes": { "type": "string" },
+        "recordedByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "teacherId", "teacherName", "date", "status", "notes", "recordedByUid", "createdAt", "updatedAt"]
+    },
+    "TeachingSchedule": {
+      "title": "Teaching Schedule",
+      "description": "Jadwal mengajar harian/mingguan per kelas, mata pelajaran, dan guru",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "dayOfWeek": { "type": "string", "enum": ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"] },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "className": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "room": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idSekolah", "dayOfWeek", "startTime", "endTime", "className", "subjectName", "teacherId", "teacherName", "room", "createdAt", "updatedAt"]
+    },
+    "ForumMessage": {
+      "title": "Institution Forum Message (Chat + Voice-Over Only)",
+      "description": "Forum diskusi lembaga teks dan voice-note maksimal 30 detik; blokir upload file/gambar/dokumen",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idSekolah": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["SUPERADMIN", "GURU"] },
+        "messageType": { "type": "string", "enum": ["TEXT", "VOICE_NOTE"] },
+        "textContent": { "type": "string" },
+        "voiceBase64": { "type": "string" },
+        "voiceDurationSec": { "type": "integer" },
+        "sentDate": { "type": "string" },
+        "sentTime": { "type": "string" },
+        "isArchived": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "idSekolah", "senderUid", "senderName", "senderRole", "messageType",
+        "textContent", "voiceBase64", "voiceDurationSec", "sentDate", "sentTime",
+        "isArchived", "createdAt", "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "UserProfile", "description": "User profile & active tenant" },
+    "/school_directory/{schoolId}": { "schema": "SchoolDirectory", "description": "Non-PII school directory" },
+    "/schools/{schoolId}": { "schema": "School", "description": "Multi-tenant school root" },
+    "/schools/{schoolId}/staff_whitelist/{whitelistId}": { "schema": "StaffWhitelist", "description": "Staff email whitelist" },
+    "/schools/{schoolId}/members/{uid}": { "schema": "SchoolMember", "description": "Verified UID role binding" },
+    "/schools/{schoolId}/classes/{classId}": { "schema": "SchoolClass", "description": "Protected class data including PIN" },
+    "/schools/{schoolId}/classes_public/{classId}": { "schema": "SchoolClassPublic", "description": "Public class catalog without PIN" },
+    "/schools/{schoolId}/pin_verifications/{verificationId}": { "schema": "PinVerification", "description": "Zero-exposure PIN lookup" },
+    "/schools/{schoolId}/teachers/{teacherId}": { "schema": "Teacher", "description": "School teachers & PTK" },
+    "/schools/{schoolId}/ptk_attendance/{attId}": { "schema": "PtkAttendanceRecord", "description": "PTK daily attendance records" },
+    "/schools/{schoolId}/teaching_schedules/{scheduleId}": { "schema": "TeachingSchedule", "description": "Teaching schedules per class/subject/teacher" },
+    "/schools/{schoolId}/forum_messages/{msgId}": { "schema": "ForumMessage", "description": "Forum diskusi lembaga (Chat + Voice-Over <=30s only)" },
+    "/schools/{schoolId}/students/{studentId}": { "schema": "Student", "description": "School students" },
+    "/schools/{schoolId}/subjects/{subjectId}": { "schema": "Subject", "description": "School subjects" },
+    "/schools/{schoolId}/holidays/{holidayId}": { "schema": "SchoolHoliday", "description": "Academic calendar holidays" },
+    "/schools/{schoolId}/announcements/{announcementId}": { "schema": "SchoolAnnouncement", "description": "School announcements" },
+    "/schools/{schoolId}/login_logs/{logId}": { "schema": "LoginActivityLog", "description": "Login activity audit trail" },
+    "/schools/{schoolId}/attendance/{attendanceId}": { "schema": "AttendanceRecord", "description": "Attendance logs" },
+    "/schools/{schoolId}/grades/{gradeId}": { "schema": "GradeRecord", "description": "Student grades" },
+    "/schools/{schoolId}/lesson_plans/{rppId}": { "schema": "LessonPlan", "description": "RPP documents" },
+    "/schools/{schoolId}/teaching_journals/{journalId}": { "schema": "TeachingJournal", "description": "Teaching journals & allowance reports" },
+    "/schools/{schoolId}/assignments/{assignmentId}": { "schema": "StudentAssignment", "description": "Assignments, materials & competency tests" },
+    "/schools/{schoolId}/notifications/{notifId}": { "schema": "AppNotification", "description": "Real-time notifications" }
+  }
+}
